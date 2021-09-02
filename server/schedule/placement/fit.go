@@ -85,6 +85,13 @@ type RuleFit struct {
 	// different Role from configuration (the Role can be migrated to target role
 	// by scheduling).
 	PeersWithDifferentRole []*metapb.Peer
+	// PendingPeers is subset of `Peers`. The peers in PendingPeers are dieveded
+	// to this Rule but do not catch up with the leader yet. This is used to
+	// avoid deleting orphan peers while the peers fit in rule are not totally
+	// working.
+	PendingPeers []*metapb.Peer
+	// DownPeers is subset of `Peers`. Like PendingPeers.
+	DownPeers []*metapb.Peer
 	// IsolationScore indicates at which level of labeling these Peers are
 	// isolated. A larger value is better.
 	IsolationScore float64
@@ -92,7 +99,10 @@ type RuleFit struct {
 
 // IsSatisfied returns if the rule is properly satisfied.
 func (f *RuleFit) IsSatisfied() bool {
-	return len(f.Peers) == f.Rule.Count && len(f.PeersWithDifferentRole) == 0
+	return len(f.Peers) == f.Rule.Count &&
+		len(f.PeersWithDifferentRole) == 0 &&
+		len(f.PendingPeers) == 0 &&
+		len(f.DownPeers) == 0
 }
 
 func compareRuleFit(a, b *RuleFit) int {
@@ -129,6 +139,7 @@ func FitRegion(stores StoreSet, region *core.RegionInfo, rules []*Rule) *RegionF
 
 type fitWorker struct {
 	stores  []*core.StoreInfo
+	region  *core.RegionInfo
 	bestFit RegionFit  // update during execution
 	peers   []*fitPeer // p.selected is updated during execution.
 	rules   []*Rule
@@ -148,6 +159,7 @@ func newFitWorker(stores StoreSet, region *core.RegionInfo, rules []*Rule) *fitW
 
 	return &fitWorker{
 		stores:  stores.GetStores(),
+		region:  region,
 		bestFit: RegionFit{RuleFits: make([]*RuleFit, len(rules))},
 		peers:   peers,
 		rules:   rules,
@@ -211,7 +223,7 @@ func (w *fitWorker) enumPeers(candidates, selected []*fitPeer, index int, count 
 // compareBest checks if the selected peers is better then previous best.
 // Returns true if it replaces `bestFit` with a better alternative.
 func (w *fitWorker) compareBest(selected []*fitPeer, index int) bool {
-	rf := newRuleFit(w.rules[index], selected)
+	rf := newRuleFit(w.region, w.rules[index], selected)
 	cmp := 1
 	if best := w.bestFit.RuleFits[index]; best != nil {
 		cmp = compareRuleFit(rf, best)
@@ -249,12 +261,22 @@ func (w *fitWorker) updateOrphanPeers(index int) {
 	}
 }
 
-func newRuleFit(rule *Rule, peers []*fitPeer) *RuleFit {
+func newRuleFit(region *core.RegionInfo, rule *Rule, peers []*fitPeer) *RuleFit {
 	rf := &RuleFit{Rule: rule, IsolationScore: isolationScore(peers, rule.LocationLabels)}
 	for _, p := range peers {
 		rf.Peers = append(rf.Peers, p.Peer)
 		if !p.matchRoleStrict(rule.Role) {
 			rf.PeersWithDifferentRole = append(rf.PeersWithDifferentRole, p.Peer)
+		}
+		for _, pending_peers := range region.GetPendingPeers() {
+			if pending_peers.Id == p.Peer.Id {
+				rf.PendingPeers = append(rf.PendingPeers, pending_peers)
+			}
+		}
+		for _, down_peer := range region.GetDownPeers() {
+			if down_peer.Peer.Id == p.Peer.Id {
+				rf.DownPeers = append(rf.DownPeers, down_peer.Peer)
+			}
 		}
 	}
 	return rf
