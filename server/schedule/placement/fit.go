@@ -268,14 +268,14 @@ func newRuleFit(region *core.RegionInfo, rule *Rule, peers []*fitPeer) *RuleFit 
 		if !p.matchRoleStrict(rule.Role) {
 			rf.PeersWithDifferentRole = append(rf.PeersWithDifferentRole, p.Peer)
 		}
-		for _, pending_peers := range region.GetPendingPeers() {
-			if pending_peers.Id == p.Peer.Id {
-				rf.PendingPeers = append(rf.PendingPeers, pending_peers)
+		for _, pendingPeer := range region.GetPendingPeers() {
+			if pendingPeer.Id == p.Peer.Id {
+				rf.PendingPeers = append(rf.PendingPeers, pendingPeer)
 			}
 		}
-		for _, down_peer := range region.GetDownPeers() {
-			if down_peer.Peer.Id == p.Peer.Id {
-				rf.DownPeers = append(rf.DownPeers, down_peer.Peer)
+		for _, downPeer := range region.GetDownPeers() {
+			if downPeer.Peer.Id == p.Peer.Id {
+				rf.DownPeers = append(rf.DownPeers, downPeer.Peer)
 			}
 		}
 	}
